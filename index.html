@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Grand Family Casino</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <style>
+        body { background: radial-gradient(circle, #2d0408, #050101); color: white; overflow: hidden; font-family: 'Segoe UI', sans-serif;}
+        .card { width: 65px; height: 95px; background: white; border-radius: 0.5rem; display: flex; flex-direction: column; justify-content: space-between; padding: 4px; font-weight: bold; box-shadow: 2px 2px 5px rgba(0,0,0,0.5); user-select: none; }
+        .hidden-card { background: repeating-linear-gradient(45deg, #7f1d1d, #7f1d1d 10px, #b91c1c 10px, #b91c1c 20px); border: 3px solid #f87171; color: transparent !important; }
+        .felt-table { background: radial-gradient(ellipse at center, #065f46 0%, #064e3b 100%); border: 12px solid #381303; border-radius: 120px; box-shadow: inset 0 0 30px #000; }
+        .felt-red { background: radial-gradient(ellipse at center, #7f1d1d 0%, #450a0a 100%); border: 12px solid #d97706; border-radius: 80px;}
+        .slots-bg { background: repeating-linear-gradient(45deg, #1f2937, #1f2937 20px, #111827 20px, #111827 40px); border: 8px solid #fbbf24; border-radius: 12px; }
+        
+        .animated-turn { box-shadow: 0 0 15px 5px #fbbf24; transform: scale(1.05); }
+        .slap-button { transition: transform 0.1s; } .slap-button:active { transform: scale(0.9); box-shadow: none !important;}
+        
+        /* Layout Hider Utilities */
+        .page { position: absolute; inset: 0; display: none; flex-direction: column; }
+        .page.active { display: flex; }
+    </style>
+</head>
+<body class="w-screen h-screen">
+
+    <!-- GLOBAL HUD HEADER -->
+    <div id="hud" class="absolute top-0 w-full flex justify-between px-8 py-3 bg-black bg-opacity-70 border-b border-gray-700 z-50 hidden">
+        <div class="text-xl font-bold tracking-widest text-yellow-500 uppercase">Grand Casino <span class="text-xs text-white" id="my-name"></span></div>
+        <div class="flex gap-4 items-center">
+            <span class="text-xl font-bold font-mono bg-green-900 px-4 rounded border border-green-500">
+                💰 $<span id="wallet-amt">---</span>
+            </span>
+            <button onclick="requestWelfare()" class="text-xs bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded">Ask 100 Chips</button>
+            <button onclick="nav('lobby')" class="bg-red-700 hover:bg-red-600 px-3 py-1 font-bold rounded shadow text-sm uppercase hidden" id="leave-btn">Exit to Lobby</button>
+        </div>
+    </div>
+
+    <!-- 1. LOGIN SCREEN -->
+    <div id="view-login" class="page active bg-gray-900 bg-opacity-95 items-center justify-center">
+        <div class="bg-gray-800 p-8 rounded-2xl text-center border-2 border-yellow-600 shadow-2xl shadow-red-900 w-96">
+            <h1 class="text-5xl mb-2 font-black text-transparent bg-clip-text bg-gradient-to-br from-yellow-300 to-yellow-600 text-shadow-lg">ROYAL VIP</h1>
+            <p class="text-gray-400 mb-6 font-semibold">Enter your family name tag</p>
+            <input type="text" id="input-username" class="w-full text-xl py-3 px-4 rounded bg-gray-900 border border-gray-600 text-white font-bold mb-4" placeholder="Dad, Mom, etc.">
+            <button onclick="login()" class="w-full py-3 bg-gradient-to-r from-red-600 to-red-800 hover:from-red-500 hover:to-red-700 text-white font-bold text-lg rounded-xl transition">ENTER CASINO</button>
+        </div>
+    </div>
+
+    <!-- 2. CASINO LOBBY -->
+    <div id="view-lobby" class="page relative pt-16 px-12 overflow-y-auto">
+        <h2 class="text-3xl font-black mt-6 mb-2 text-yellow-500">Active Tables & Rooms</h2>
+        
+        <div class="flex space-x-4 mb-8">
+            <button onclick="openModal()" class="bg-green-700 hover:bg-green-600 text-white font-bold py-2 px-6 rounded-lg shadow uppercase">+ Create Table</button>
+            <button onclick="nav('slots')" class="bg-indigo-700 hover:bg-indigo-600 text-white font-bold py-2 px-6 rounded-lg shadow flex items-center gap-2">🎰 Play Slots (Solo)</button>
+        </div>
+
+        <div id="lobby-list" class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6">
+            <!-- Room boxes inserted dynamically -->
+        </div>
+
+        <!-- Create Game Modal -->
+        <div id="modal-create" class="fixed inset-0 bg-black bg-opacity-80 z-[100] flex justify-center items-center hidden">
+            <div class="bg-gray-800 border-2 border-yellow-600 p-6 rounded-xl w-96 text-center shadow-xl">
+                <h3 class="text-xl font-bold mb-4 text-white">Select Game Room</h3>
+                <input type="text" id="create-room-name" placeholder="Room Code (e.g. Fun23)" class="w-full px-3 py-2 bg-gray-900 rounded mb-4 text-center font-bold">
+                
+                <button onclick="createRoom('poker')" class="w-full bg-blue-700 hover:bg-blue-600 font-bold py-3 mb-3 rounded flex items-center justify-center gap-2 shadow">🃏 Host Texas Hold'em</button>
+                <button onclick="createRoom('slapjack')" class="w-full bg-red-700 hover:bg-red-600 font-bold py-3 mb-3 rounded flex items-center justify-center gap-2 shadow">🤚 Host Speed Slapjack</button>
+                <button onclick="closeModal()" class="text-gray-400 text-sm mt-2">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 3. SLOTS MINI-GAME -->
+    <div id="view-slots" class="page items-center justify-center relative pt-16">
+        <div class="slots-bg w-[500px] h-[350px] flex flex-col items-center justify-center p-6 relative">
+            <div class="bg-black border-4 border-gray-700 rounded-lg w-full flex-1 flex justify-around items-center px-4 overflow-hidden mb-6 shadow-inner relative">
+                <span class="text-7xl absolute left-2 opacity-50 z-0 text-white rotate-12 blur-sm hidden spin-anim">💎</span>
+                <span id="slot-1" class="text-6xl z-10 filter drop-shadow-md">7️⃣</span>
+                <span id="slot-2" class="text-6xl z-10 filter drop-shadow-md">7️⃣</span>
+                <span id="slot-3" class="text-6xl z-10 filter drop-shadow-md">7️⃣</span>
+            </div>
+            
+            <p id="slots-msg" class="text-yellow-400 font-bold mb-4 min-h-[1.5rem] tracking-wide"></p>
+            
+            <div class="flex w-full gap-4">
+                <button onclick="pullSlot(10)" class="flex-1 bg-gradient-to-b from-green-500 to-green-800 text-white font-bold rounded-lg py-4 border-b-4 border-green-900 active:border-b-0 active:translate-y-1 transition text-xl">SPIN ($10)</button>
+                <button onclick="pullSlot(50)" class="flex-1 bg-gradient-to-b from-blue-500 to-blue-800 text-white font-bold rounded-lg py-4 border-b-4 border-blue-900 active:border-b-0 active:translate-y-1 transition text-xl">SPIN ($50)</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 4. POKER TABLE UI -->
+    <div id="view-poker" class="page pt-16 h-full flex items-center justify-center px-4 sm:flex-row flex-col">
+        <!-- Live Table Layout -->
+        <div class="flex-1 flex flex-col justify-center items-center w-full relative mb-16 sm:mb-0">
+            <div class="felt-table relative w-full max-w-5xl aspect-[2/1] flex flex-col items-center justify-center">
+                <!-- Info Header -->
+                <div class="absolute top-6 flex flex-col items-center text-yellow-100 opacity-60 pointer-events-none">
+                    <span id="pk-code" class="text-sm font-bold tracking-widest uppercase">---</span>
+                </div>
+
+                <!-- Community Board -->
+                <div id="pk-board" class="flex space-x-2 h-24 mb-4 z-10 pointer-events-auto">
+                   <!-- Insert Board JS -->
+                </div>
+                
+                <!-- Center Pot -->
+                <div class="bg-black bg-opacity-80 rounded-full border border-gray-600 px-6 py-2 shadow-2xl flex items-center gap-3">
+                    <div class="w-6 h-6 rounded-full bg-repeating-conic-gradient text-red-600 bg-white border border-red-800"></div>
+                    <span class="font-mono font-bold text-yellow-400 text-2xl">POT: $<span id="pk-pot">0</span></span>
+                </div>
+
+                <!-- Circular seats logic via JS mapping positions -->
+                <div id="pk-players" class="absolute inset-0 z-20 pointer-events-none text-white text-center"></div>
+            </div>
+
+            <!-- Start Host Game -->
+            <button onclick="startPoker()" id="pk-btn-start" class="mt-8 bg-purple-700 hover:bg-purple-600 py-3 px-8 text-white rounded-full font-bold uppercase shadow-lg shadow-purple-900 tracking-wider">Start Hand (Wait for players)</button>
+
+            <!-- Bottom Control Panel Action Buttons -->
+            <div id="pk-action-hud" class="fixed bottom-0 sm:bottom-8 w-[95%] sm:w-1/2 mx-auto left-0 right-0 bg-gray-900 border-2 border-gray-700 p-4 rounded-xl shadow-2xl flex-col hidden items-center space-y-3 z-50 pointer-events-auto">
+                <span class="text-green-400 font-bold uppercase animate-pulse mb-1">YOUR TURN. MAX BET TO CALL: $<span id="call-amt-hint">0</span></span>
+                <div class="flex w-full space-x-2">
+                    <button onclick="sendAction('fold')" class="flex-1 bg-red-700 hover:bg-red-600 py-4 font-black text-xl rounded shadow text-gray-200 tracking-wider transition">FOLD</button>
+                    <button onclick="sendAction('check_call')" id="btn-call" class="flex-1 bg-blue-700 hover:bg-blue-600 py-4 font-black text-xl rounded shadow text-white tracking-wider transition">CALL</button>
+                </div>
+                <div class="flex w-full space-x-2">
+                    <input type="number" id="raise-input" class="w-24 bg-gray-800 rounded px-2 font-bold font-mono text-center text-xl text-yellow-400" min="0" placeholder="$" />
+                    <button onclick="sendAction('raise')" class="flex-1 bg-yellow-600 hover:bg-yellow-500 py-3 font-black text-lg rounded shadow text-black uppercase tracking-wider transition">Raise Total ($)</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Integrated Text Casino Chat Area Sidebar-->
+        <div class="h-64 sm:h-[80%] w-full sm:w-80 bg-gray-800 sm:border-l-4 sm:border-black rounded sm:rounded-none z-10 flex flex-col p-2 ml-4 mb-4 sm:mb-0 hidden" id="ingame-chat">
+             <div class="flex-1 bg-black bg-opacity-30 rounded p-2 overflow-y-auto font-mono text-xs flex flex-col gap-1 text-gray-300 border-b border-gray-700 pb-2 mb-2" id="chat-output">
+                 <!-- MSGS -->
+             </div>
+        </div>
+    </div>
+
+    <!-- 5. SLAPJACK ARENA UI -->
+    <div id="view-slapjack" class="page pt-16 flex items-center justify-center flex-col bg-gray-900 bg-[radial-gradient(circle_at_center,_#991b1b_0%,_#450a0a_100%)]">
+        <h2 class="absolute top-24 font-black tracking-[0.5em] text-red-500 opacity-20 text-6xl pointer-events-none uppercase">SlapJack Speed Room</h2>
+        
+        <!-- Live Slapjack table overlayed -->
+        <div class="relative w-[700px] aspect-square flex flex-col items-center justify-center p-8 rounded-full border-4 border-dashed border-red-800 opacity-90 mt-12 shadow-[0_0_150px_#7f1d1d_inset]">
+             <!-- Player HUDs distributed around -->
+             <div id="sj-players" class="absolute inset-0"></div>
+
+             <!-- Center Discard Pile Container-->
+             <div id="sj-center" class="relative z-10 flex items-center justify-center transform scale-[1.5]">
+                 <!-- Current flipped card generated via JS-->
+                 <div class="w-16 h-24 border-2 border-white rounded opacity-20"></div> 
+             </div>
+        </div>
+
+        <!-- Action Tools Base HUD -->
+        <div class="absolute bottom-8 flex gap-8">
+            <button id="sj-btn-flip" onclick="sjFlip()" class="hidden w-40 h-40 rounded-full bg-blue-700 hover:bg-blue-600 font-black shadow-xl shadow-blue-900 text-3xl transition active:scale-[0.9]">🃏 Flip Card!</button>
+            <button onclick="sjSlap()" class="w-64 h-64 slap-button rounded-full bg-[radial-gradient(circle_at_center,_#ef4444_0%,_#7f1d1d_100%)] border-[8px] border-red-300 font-black shadow-[0_15px_30px_#000] text-7xl uppercase z-50 text-white tracking-widest pointer-events-auto">SLAP!</button>
+        </div>
+
+        <!-- Owner Start btn overlaying it temporarily -->
+        <button onclick="socket.emit('start_slapjack')" id="sj-btn-start" class="absolute top-[25%] px-12 py-4 bg-yellow-500 font-bold uppercase rounded shadow text-xl animate-pulse">Distribute Cards to Table!</button>
+    </div>
+
+    <!-- MAIN JAVASCRIPT APP -->
+    <script>
+        // Use window.location if hosted. Use local port 3001 if testing on machine
+        const isRender = window.location.hostname !== 'localhost'; 
+        const SERVER_URL = isRender ? 'https://poke1-mz89.onrender.com' : 'http://localhost:3001'; 
+        // 👆 MUST EDIT WITH YOUR RENDER URL!
+
+        const socket = io(SERVER_URL);
+        
+        let localState = { uname: "", balance: 0, room: "" };
+
+        // ------------------ ROUTING UTILS -------------------
+        const views = ['view-login', 'view-lobby', 'view-slots', 'view-poker', 'view-slapjack'];
+        function nav(pageName) {
+            views.forEach(v => document.getElementById(v).classList.remove('active'));
+            document.getElementById(`view-${pageName}`).classList.add('active');
+            
+            if(pageName !== 'login' && pageName !== 'slots' && pageName !== 'lobby' && localState.room) {
+                 document.getElementById('ingame-chat').classList.remove('hidden');
+            } else {
+                 document.getElementById('ingame-chat').classList.add('hidden');
+            }
+
+            document.getElementById('leave-btn').style.display = (pageName==='lobby'||pageName==='login') ? 'none' : 'block';
+
+            if(pageName === 'lobby' && localState.room) { // We nav'd out of room, handle disconnect backend
+                 socket.emit('leave_room');
+                 localState.room = "";
+                 chatLog([]); // clear text
+            }
+        }
+        
+        socket.on('boot_lobby', () => { nav('lobby'); alert("You've bankrupted entirely and been evicted from the table! Check wallet to claim aid in lobby."); });
+
+        // ------------------ LOBBY & ACCOUNT -----------------
+        function login() {
+            let n = document.getElementById('input-username').value.trim();
+            if(!n || n.length > 8) return alert("Please type a valid short name");
+            localState.uname = n;
+            document.getElementById('my-name').innerText = `(${n})`;
+            socket.emit('login', n);
+            document.getElementById('hud').classList.remove('hidden');
+            nav('lobby');
+        }
+
+        socket.on('update_balance', amt => { 
+            localState.balance = amt; 
+            document.getElementById('wallet-amt').innerText = amt; 
+            document.getElementById('raise-input').max = amt;
+        });
+
+        function requestWelfare() { socket.emit('request_welfare'); }
+        
+        function openModal() { document.getElementById('modal-create').classList.remove('hidden'); }
+        function closeModal() { document.getElementById('modal-create').classList.add('hidden'); }
+
+        socket.on('lobby_update', (roomsArray) => {
+            const lb = document.getElementById('lobby-list');
+            lb.innerHTML = '';
+            roomsArray.forEach(r => {
+                const colors = r.game === 'poker' ? 'bg-blue-900 border-blue-500' : 'bg-red-900 border-red-500';
+                const emoji = r.game === 'poker' ? '🃏 Hold Em' : '✋ Slapjack';
+                lb.innerHTML += `
+                    <div class="relative ${colors} border px-4 py-4 rounded-xl shadow-lg transform hover:scale-[1.03] transition flex flex-col gap-2">
+                         <div class="font-bold uppercase tracking-wider opacity-80">${emoji}</div>
+                         <div class="text-3xl font-black truncate">${r.id}</div>
+                         <div class="text-gray-300">${r.players}/8 Players In-Seat</div>
+                         <button onclick="joinRoom('${r.id}')" class="mt-2 bg-yellow-600 font-bold px-3 py-2 rounded uppercase text-black">Join Action</button>
+                    </div>`;
+            });
+        });
+
+        function createRoom(game) {
+             let id = document.getElementById('create-room-name').value.trim();
+             if(!id) id = localState.uname + "'s Game";
+             socket.emit('create_room', { roomId: id, game });
+             closeModal(); joinRoom(id);
+        }
+
+        function joinRoom(id) {
+             localState.room = id;
+             socket.emit('join_room', id);
+             // Assume nav awaits update. Just text update.
+        }
+
+        function buildCard(suit, val, hidden) {
+             if(hidden) return `<div class="card hidden-card relative shadow-[2px_4px_8px_rgba(0,0,0,0.6)]"></div>`;
+             const col = (suit==='♥' || suit==='♦') ? 'text-red-600' : 'text-black';
+             return `
+                <div class="card ${col} text-white border relative transform hover:-translate-y-2 transition-transform shadow-[0_5px_15px_rgba(0,0,0,0.5)]">
+                   <div class="absolute inset-0 bg-white opacity-[1] pointer-events-none rounded"></div>
+                   <div class="absolute inset-0 z-10 flex flex-col justify-between p-[3px]">
+                     <span class="text-left font-black text-sm">${val}</span>
+                     <span class="text-center text-4xl">${suit}</span>
+                     <span class="text-right font-black text-sm transform rotate-180 flex">${val}</span>
+                   </div>
+                </div>`;
+        }
+
+        // ------------------ POKER UI UPDATE MANAGER ---------
+        const posClasses = [ 'bottom-0 left-1/2 -translate-x-1/2 translate-y-16', 'left-0 top-1/2 -translate-y-1/2 -translate-x-8', 'top-0 left-1/2 -translate-x-1/2 -translate-y-10', 'right-0 top-1/2 -translate-y-1/2 translate-x-8' ];
+
+        socket.on('update_poker', (r) => {
+            nav('poker');
+            document.getElementById('pk-code').innerText = r.id;
+            document.getElementById('pk-pot').innerText = r.pot;
+            
+            document.getElementById('pk-btn-start').style.display = r.state === 'waiting' ? 'block' : 'none';
+
+            // Board Cards View (burn spaces blank div placeholder trick)
+            const pBoard = document.getElementById('pk-board'); pBoard.innerHTML = '';
+            r.center.forEach(c => pBoard.innerHTML += buildCard(c.suit, c.value, false));
+            for(let i=r.center.length; i<5; i++) {
+                 pBoard.innerHTML += `<div class="w-[65px] rounded-lg border-2 border-dashed border-gray-400 opacity-20 hidden md:block"></div>`;
+            }
+
+            // Deal Seat Renderings Around Ovular Track mapping index array map logic: Ensure YOU are mapped relative bottom.
+            const cont = document.getElementById('pk-players'); cont.innerHTML = '';
+            
+            // Re-order index mapping trick so Me is visually always at seat [0] at bottom UI slot without messing up array sequence! 
+            let myI = r.players.findIndex(x => x.id === socket.id);
+            if(myI === -1) myI = 0; // observer
+
+            let actionHudTurnHint = false; 
+
+            for(let i=0; i<r.players.length; i++) {
+                 let relI = (i - myI + r.players.length) % r.players.length; // offset visual mappings 
+                 let p = r.players[i];
+                 let posClass = posClasses[relI % posClasses.length];
+                 let isMyTurnReal = r.turnIdx === i && r.state !== 'waiting' && r.state !== 'showdown';
+                 
+                 if (isMyTurnReal && p.id === socket.id) actionHudTurnHint = true;
+
+                 // Status String visual builder
+                 let txtBadge = `$<span class="text-yellow-400 font-mono">${p.bet}</span> invested`;
+                 if(p.folded) txtBadge = `<span class="text-red-500 line-through">FOLDED</span>`;
+                 if(p.allIn) txtBadge = `<span class="text-blue-400 font-bold uppercase animate-pulse">💸 ALL IN 💸</span>`;
+
+                 // Deal graphics visual layer stringing 
+                 let cg = '';
+                 if(p.hand && p.hand.length > 0) {
+                     if (r.state === 'showdown' || p.id === socket.id) { 
+                        // Real Show (or ur hands always real to u obviously!)
+                        cg = `${buildCard(p.hand[0].suit, p.hand[0].value, false)}<div class="-ml-10 mt-3 absolute opacity-100 drop-shadow">${buildCard(p.hand[1].suit, p.hand[1].value, false)}</div>`; 
+                     } else {
+                        // Hidden opponent back panel backs 
+                        cg = `${buildCard('?', '?', true)}<div class="-ml-10 mt-3 absolute opacity-100 drop-shadow">${buildCard('?', '?', true)}</div>`; 
+                     }
+                 }
+
+                 // Final div injection append map block absolute overlay logic using pre mapped matrix indices  
+                 cont.innerHTML += `
+                 <div class="absolute ${posClass} flex flex-col items-center pointer-events-auto">
+                      <div class="relative w-[110px] h-[100px] mb-2 scale-[0.9] flex justify-center -ml-4">${cg}</div>
+                      
+                      <div class="px-5 py-2 min-w-[130px] rounded-full border border-gray-500 bg-gray-900 bg-opacity-95 ${isMyTurnReal?'animated-turn border-yellow-400':''} text-sm">
+                           <div class="font-bold truncate" style="color:${p.id === socket.id ? '#10b981':'white'};">${p.user}</div>
+                           <div class="text-[0.65rem] opacity-75">${txtBadge}</div>
+                      </div>
+                 </div>`;
+            }
+
+            // Toggles Controls
+            document.getElementById('pk-action-hud').style.display = actionHudTurnHint ? 'flex' : 'none';
+            // Set required diff check calls maths via HighestBet Tracker mapping rules: Total raised across streets minuses self mapping constraints on limits logic
+            let pDataSelfLoc = r.players[myI]; 
+            if (pDataSelfLoc) {
+               document.getElementById('call-amt-hint').innerText = (r.highestBet - pDataSelfLoc.bet) || '0 (Check/All Good!)';
+            }
+        });
+
+        // ------------------ POKER ENGINE API SEND UTILS -------
+        function startPoker() { socket.emit('start_poker'); }
+        function sendAction(t) {
+             let rz = 0; if (t === 'raise') {
+                  rz = parseInt(document.getElementById('raise-input').value);
+                  if(!rz || isNaN(rz)) return alert('Need valid Raise Total Amounts inputted please');
+             }
+             document.getElementById('pk-action-hud').style.display = 'none'; // quick block re spam double clicking wait UI lag async ticks
+             socket.emit('poker_action', {type: t, amount: rz});
+             document.getElementById('raise-input').value = ""; // blank field resets
+        }
+
+        // ------------------ SLAPJACK UI SYSTEM MANAGER  --------
+        const posJClasses = ['bottom-[5%]', 'top-[5%] flex-col-reverse', 'left-[5%] flex-row', 'right-[5%] flex-row-reverse'];
+        socket.on('update_slapjack', (r) => {
+             nav('slapjack'); 
+             document.getElementById('sj-btn-start').style.display = r.state==='waiting' ? 'block' : 'none';
+
+             // Top center disc pile handler mapping 
+             let cnt = document.getElementById('sj-center');
+             if(r.center.length > 0) { 
+                 let cc = r.center[r.center.length-1];
+                 cnt.innerHTML = `<div class="absolute transform transition ${buildCard(cc.suit, cc.value, false)}` + ` scale-[2] pointer-events-none drop-shadow-2xl z-40 relative group-active:-translate-y-[5px]"></div>`; 
+             } else { cnt.innerHTML = `<div class="w-20 h-[7rem] border-4 border-dashed border-red-500 rounded opacity-30 shadow-[0_0_15px_#f00]"></div>`; }
+            
+             // Draw user mapping array absolute matrix offset trick remapped around round container circle using class list templates and string logic 
+             let contP = document.getElementById('sj-players'); contP.innerHTML='';
+             let myIx = r.players.findIndex(x => x.id === socket.id); if(myIx === -1) myIx=0; 
+             
+             let itIsMyFlippingTimePhase = false;
+
+             r.players.forEach((p, idx) => {
+                  let visualIndx = (idx - myIx + r.players.length) % r.players.length; 
+                  
+                  if(r.turnIdx === idx && p.id === socket.id && r.state === 'playing') itIsMyFlippingTimePhase = true;
+
+                  contP.innerHTML += `
+                  <div class="absolute ${posJClasses[visualIndx]} flex gap-3 items-center w-full justify-center transition opacity-90 ${idx===r.turnIdx && r.state==='playing'?'scale-[1.1] animate-pulse !opacity-100 z-30 drop-shadow-md':''}">
+                     
+                      <div class="text-white text-center w-[120px] bg-black px-4 border border-gray-600 rounded">
+                         <span class="font-black opacity-100 text-[1rem]" style="color:${p.id === socket.id ? '#10b981':'white'};">${p.user}</span>
+                         <span class="block text-yellow-300 font-mono text-[0.7rem] bg-gray-900 border rounded my-1 shadow px-2">Cards Remaining: ${p.hand.length}</span>
+                      </div>
+                      ${p.hand.length>0 ? '<div class="h-20 scale-[0.8] shadow rotate-[5deg]"> '+buildCard('?', '?', true) +' </div>' : ''}
+                  </div>`;
+             });
+
+             // Visibility HUD rules trigger  flip tools rules blocks display block updates block dom paints triggers states block 
+             document.getElementById('sj-btn-flip').style.display = itIsMyFlippingTimePhase ? 'block' : 'none';
+        });
+
+        function sjFlip() { document.getElementById('sj-btn-flip').style.display = 'none'; socket.emit('slapjack_play_card'); }
+        function sjSlap() { socket.emit('slapjack_slap'); }
+
+        socket.on('card_played_sound', () => { /* Play a quick audio JS trick, bypassing CORS policy for web APIs safely playing dummy noise array frequencies synth pop block limits dom trick  */ const au = new window.AudioContext(); let os = au.createOscillator(); os.type="sine"; os.connect(au.destination); os.frequency.value = 800; os.start(); setTimeout(()=>os.stop(),50);});
+
+        // ------------------ SYSTEM HUD / SIDEBAR TEXT NOTIFICATIONS  ----
+        function chatLog(hArr){ // simple list refresh utility mapper string html DOM block rules append wrapper
+              const b=document.getElementById('chat-output'); 
+              if(hArr.length===0){b.innerHTML=''; return;} // blank 
+        }
+
+        socket.on('chat_msg', cData => { // direct object array feed mapped inline using sys tags text strings array pushes  limit stack string rules loop DOM appending fast limits constraints!  !IMPORTANT performance
+            let htmlMsgAppendWrapperRulesDomTargetBox = document.getElementById('chat-output');
+            let innerTplConstructRules = `<div class="p-1 mb-1 rounded bg-black shadow border border-${cData.sys?'yellow-600':'-blue-800'} text-${cData.sys?'yellow-300 animate-pulse text-[0.85rem] opacity-90':'-blue-100 text-sm'}">[LOG]: ${cData.msg}</div>`;
+            htmlMsgAppendWrapperRulesDomTargetBox.innerHTML += innerTplConstructRules; 
+            htmlMsgAppendWrapperRulesDomTargetBox.scrollTop = htmlMsgAppendWrapperRulesDomTargetBox.scrollHeight;
+        });
+
+        // ------------------ STANDALONE SLOTS -----------
+        function pullSlot(amt) {
+             socket.emit('play_slots', amt); 
+             // Visual trick DOM delay 
+             document.getElementById('slots-msg').innerText = "SPINNING..."; 
+             document.querySelector('.spin-anim').style.display = "block"; // effect
+        }
+
+        socket.on('slots_result', rData => { // { result:[arr emoji str 3 map blocks rules math objects arrays eval lists] ... win }  DOM rules appends list rules eval arrays targets ids numbers loop appends maps 
+             document.querySelector('.spin-anim').style.display = "none";
+             document.getElementById('slot-1').innerText = rData.result[0];
+             document.getElementById('slot-2').innerText = rData.result[1];
+             document.getElementById('slot-3').innerText = rData.result[2];
+             let colorRlsMsgTxtBoxClassListDomUpdates = rData.win > 0 ? `<span class="animate-bounce">🤑 MASSIVE WIN! Payout Added Into Main HUD System Wallet Value Display Sync Logic: +${rData.win}! 🤑</span>` : '<span class="text-gray-400">Bad Spin Boss :( Next one big though!</span>';
+             document.getElementById('slots-msg').innerHTML = colorRlsMsgTxtBoxClassListDomUpdates;
+        });
+
+    </script>
+</body>
+</html>
+
