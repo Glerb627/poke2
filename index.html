@@ -171,7 +171,7 @@
     <script>
         // Use window.location if hosted. Use local port 3001 if testing on machine
         const isRender = window.location.hostname !== 'localhost'; 
-        const SERVER_URL = isRender ? 'https://poke2-p7yf.onrender.com' : 'http://localhost:3001'; 
+        const SERVER_URL = 'https://poke2-p7yf.onrender.com'; 
         // 👆 MUST EDIT WITH YOUR RENDER URL!
 
         const socket = io(SERVER_URL);
